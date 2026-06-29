@@ -1,0 +1,133 @@
+*,
+*::before,
+*::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  background: #F2EDE4;
+  color: #1a1a1a;
+  font-family: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  overflow-x: hidden;
+}
+
+/* ── Canvas ── */
+#particle-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ── Hero ── */
+#hero {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  height: 100vh;
+  text-align: center;
+  padding-top: 6vh;
+}
+
+#hero-title {
+  font-size: clamp(4rem, 12vw, 11rem);
+  font-weight: 900;
+  line-height: 0.92;
+  letter-spacing: -0.02em;
+  text-transform: uppercase;
+  opacity: 0;
+  transform: translateY(40px);
+}
+
+#hero-title .line1 {
+  color: #1a1a1a;
+}
+
+#hero-title .line2 {
+  color: #8a8a8a;
+  display: block;
+  margin-top: -0.05em;
+  opacity: 0;
+}
+
+/* ── Logo Strip ── */
+#logos {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  overflow: hidden;
+  padding: 2rem 0;
+  border-top: 1px solid rgba(0,0,0,0.08);
+}
+
+.logos-track {
+  display: flex;
+  align-items: center;
+  gap: 4rem;
+  animation: scrollLogos 20s linear infinite;
+  width: max-content;
+}
+
+.logo-item {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: #c8c0b4;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+@keyframes scrollLogos {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* ── Next Section ── */
+#next-section {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  padding: 6rem 10vw;
+}
+
+.section-content {
+  max-width: 600px;
+}
+
+.section-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #7c5cbf;
+  margin-bottom: 1rem;
+  opacity: 0;
+  transform: translateY(20px);
+}
+
+.section-title {
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  font-weight: 700;
+  margin-bottom: 1.5rem;
+  opacity: 0;
+  transform: translateY(25px);
+}
+
+.section-body {
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: #6a6060;
+  opacity: 0;
+  transform: translateY(20px);
+}
