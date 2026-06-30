@@ -1,4 +1,3 @@
-// particles.js
 import * as THREE from 'three';
 import { SETTINGS as S } from './settings.js';
 
@@ -46,6 +45,8 @@ function createGeometry() {
   const alphas = new Float32Array(count);
   const sizes = new Float32Array(count);
   const types = new Float32Array(count);
+  const gradTs = new Float32Array(count); // Static horizontal factor for indestructible gradients
+  const localYs = new Float32Array(count); // Static vertical position for stable gold masks
   const coreCount = Math.floor(count * S.CORE_RATIO);
 
   const numClouds = 45;
@@ -56,9 +57,12 @@ function createGeometry() {
       cloudIndex / (numClouds - 1) + (Math.random() - 0.5) * 0.02,
     );
 
+    // Save horizontal layout index before any noise deformation or scroll drift
+    gradTs[i] = t;
+
     const xBase = (t - 0.5) * S.INK_SCALE_X * 2.0 + S.INK_OFFSET_X;
 
-    // Базовая траектория волны
+    // Base wave mathematical trajectory
     let yBase =
       (Math.sin(t * Math.PI * 1.1) * 0.7 +
         Math.sin(t * Math.PI * 2.5 + 0.8) * 0.15 +
@@ -66,7 +70,7 @@ function createGeometry() {
         S.INK_SCALE_Y +
       S.INK_OFFSET_Y;
 
-    // СИЛУЭТ СЛЕВА: Формируем ту самую крупную "чернильную гору", как на макете
+    // Left silhouette: Shaping the massive ink hill according to design layout
     if (t < 0.45) {
       const normX = (t - 0.16) / 0.12;
       const leftPlume = Math.exp(-normX * normX) * 0.95;
@@ -76,6 +80,8 @@ function createGeometry() {
     const isCore = i < coreCount;
     const plumeFactor = 1.5 - t * 1.0;
 
+    let finalY = 0.0;
+
     if (isCore) {
       const radius = S.CORE_THICKNESS * plumeFactor;
       const ox = gaussian() * radius * 0.38;
@@ -83,7 +89,8 @@ function createGeometry() {
       const oz = gaussian() * radius * 0.25;
 
       positions[i * 3] = safe(xBase + ox);
-      positions[i * 3 + 1] = safe(yBase + oy);
+      finalY = safe(yBase + oy);
+      positions[i * 3 + 1] = finalY;
       positions[i * 3 + 2] = safe(oz);
 
       const distFromCenter = Math.sqrt(ox * ox + oy * oy + oz * oz);
@@ -100,7 +107,8 @@ function createGeometry() {
       const dist = Math.pow(Math.random(), 0.4) * spread;
 
       positions[i * 3] = safe(xBase + Math.cos(angle) * dist);
-      positions[i * 3 + 1] = safe(yBase + Math.sin(angle) * dist * 0.6);
+      finalY = safe(yBase + Math.sin(angle) * dist * 0.6);
+      positions[i * 3 + 1] = finalY;
       positions[i * 3 + 2] = (Math.random() - 0.5) * 0.4;
 
       alphas[i] = clamp01(
@@ -113,6 +121,9 @@ function createGeometry() {
         Math.random() * (S.SPLATTER_SIZE_MAX - S.SPLATTER_SIZE_MIN);
       types[i] = 1.0;
     }
+
+    // Save initial static elevation for safe shader operations
+    localYs[i] = finalY;
   }
 
   const geo = new THREE.BufferGeometry();
@@ -120,6 +131,8 @@ function createGeometry() {
   geo.setAttribute('alpha', new THREE.BufferAttribute(alphas, 1));
   geo.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
   geo.setAttribute('aType', new THREE.BufferAttribute(types, 1));
+  geo.setAttribute('aGradT', new THREE.BufferAttribute(gradTs, 1));
+  geo.setAttribute('aLocalY', new THREE.BufferAttribute(localYs, 1));
   return geo;
 }
 
@@ -144,22 +157,25 @@ function createMaterial() {
       uColorGold: { value: cGold },
       uColorDark: { value: cDark },
       uColorBlack: { value: cBlack },
-      uScaleX: { value: S.INK_SCALE_X },
     },
     vertexShader: `
       attribute float alpha;
       attribute float aSize;
       attribute float aType;
+      attribute float aGradT;
+      attribute float aLocalY;
 
       varying float vAlpha;
       varying float vType;
-      varying vec3  vWorldPos;
+      varying float vGradT;
+      varying float vLocalY;
 
       uniform float uTime;
       uniform float uScrollFade;
       uniform float uDriftY;
       uniform float uDriftX;
 
+      // 3D Simplex Noise implementations
       vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
       vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
       vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
@@ -235,9 +251,12 @@ function createMaterial() {
       void main() {
         vAlpha = alpha;
         vType  = aType;
+        vGradT = aGradT;
+        vLocalY = aLocalY;
 
         vec3 pos = position;
 
+        // Calculate procedural fluid simulation using layered curl noise
         float baseScale = 0.40 + uScrollFade * 0.25;
         vec3 baseNP = pos * baseScale + vec3(0.0, uTime * ${S.NOISE_SPEED}, uTime * 0.02);
         vec3 baseFluid = curlNoise(baseNP);
@@ -249,18 +268,17 @@ function createMaterial() {
         vec3 finalFluid = baseFluid * 0.75 + detailFluid * 0.25;
         float strength = ${S.NOISE_STRENGTH} + (uScrollFade * 0.4);
 
+        // Apply physical fluid displacement and scroll offset drifts
         pos += finalFluid * strength;
         pos.y -= uDriftY;
         pos.x -= uDriftX;
 
-        vWorldPos = pos;
         gl_Position  = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
         gl_PointSize = aSize * (1.0 - uScrollFade * 0.80);
       }
     `,
     fragmentShader: `
       uniform float uScrollFade;
-      uniform float uScaleX;
       uniform vec3  uColorTeal;
       uniform vec3  uColorPurple;
       uniform vec3  uColorGold;
@@ -269,33 +287,40 @@ function createMaterial() {
 
       varying float vAlpha;
       varying float vType;
-      varying vec3  vWorldPos;
+      varying float vGradT;
+      varying float vLocalY;
 
       void main() {
+        // Shape points into soft anti-aliased circular particles
         vec2  uv   = gl_PointCoord - 0.5;
         float dist = length(uv);
         if (dist > 0.5) discard;
 
         float soft = smoothstep(0.5, 0.15, dist);
-        float t = clamp((vWorldPos.x + uScaleX) / (uScaleX * 2.0), 0.0, 1.0);
 
-        // РАСШИРЯЕМ ГРАНИЦЫ: даем синему и фиолетовому занять больше места слева и в центре
+        // Use pre-baked stable horizontal progress factor
+        float t = vGradT;
+
+        // Map core gradient color palettes using precise horizontal limits
         vec3 baseCol;
-        if (t < 0.38) {
-          baseCol = mix(uColorTeal, uColorPurple, t / 0.38);
-        } else if (t < 0.68) {
-          baseCol = mix(uColorPurple, uColorDark, (t - 0.38) / 0.30);
+        if (t < 0.35) {
+          baseCol = mix(uColorTeal, uColorPurple, t / 0.35);
+        } else if (t < 0.65) {
+          baseCol = mix(uColorPurple, uColorDark, (t - 0.35) / 0.30);
         } else {
-          baseCol = mix(uColorDark, uColorBlack, (t - 0.68) / 0.32);
+          baseCol = mix(uColorDark, uColorBlack, (t - 0.65) / 0.35);
         }
 
-        // Золотые пигменты
-        float goldMask = smoothstep(0.12, 0.26, t) * smoothstep(0.48, 0.33, t);
-        float heightFactor = clamp((vWorldPos.y + 0.6) * 0.9, 0.0, 1.0);
-        vec3 finalCol = mix(baseCol, uColorGold, goldMask * heightFactor * 0.70);
+        // Apply gold pigment mask within a safe spatial window
+        float goldMask = smoothstep(0.10, 0.28, t) * smoothstep(0.50, 0.33, t);
 
+        // Calculate vertical falloff utilizing static local Y coordinates
+        float heightFactor = clamp((vLocalY + 0.2) * 0.8, 0.0, 1.0);
+        vec3 finalCol = mix(baseCol, uColorGold, goldMask * heightFactor * 0.75);
+
+        // Blend splatter particles with dark background accents for heavy ink style
         if (vType > 0.5) {
-          finalCol = mix(finalCol, uColorBlack, 0.35);
+          finalCol = mix(finalCol, uColorBlack, 0.30);
           soft *= 0.8;
         }
 
